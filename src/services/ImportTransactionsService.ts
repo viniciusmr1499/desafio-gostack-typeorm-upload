@@ -1,6 +1,6 @@
 import csvParse from 'csv-parse';
-import { getCustomRepository, In } from 'typeorm';
 import fs from 'fs';
+import { getCustomRepository, getRepository, In } from 'typeorm';
 
 import TransactionRepository from '../repositories/TransactionsRepository';
 import Transaction from '../models/Transaction';
@@ -15,17 +15,16 @@ interface CSVTransaction {
 
 class ImportTransactionsService {
   async execute(filePath: string): Promise<Transaction[]> {
-    const categoriesRepository = getCustomRepository(TransactionRepository);
-
     const transactionRepository = getCustomRepository(TransactionRepository);
+    const categoriesRepository = getRepository(Category);
 
     const contactsReadStream = fs.createReadStream(filePath);
 
-    const parses = csvParse({
+    const parsers = csvParse({
       from_line: 2
     });
 
-    const parseCSV = contactsReadStream.pipe(parses);
+    const parseCSV = contactsReadStream.pipe(parsers);
 
     const transactions: CSVTransaction[] = [];
     const categories: string[] = [];
@@ -36,6 +35,7 @@ class ImportTransactionsService {
       if( !title || !type || !value ) return;
 
       categories.push(category);
+
       transactions.push({ title, type, value, category });
     });
 
@@ -47,11 +47,13 @@ class ImportTransactionsService {
       }
     });
 
-    const existentCategoriesTitles = existentCategories.map((category: Category) => category.title);
+    const existentCategoriesTitles = existentCategories.map(
+      (category: Category) => category.title,
+    );
 
     const addCategoryTitles = categories
       .filter(category => !existentCategoriesTitles.includes(category))
-      .filter((value, index, self) => self.indexOf(value) === index);
+      .filter((value, index, self) => self.indexOf(value) == index);
 
     const newCategories = categoriesRepository.create(
       addCategoryTitles.map(title => ({
@@ -64,16 +66,14 @@ class ImportTransactionsService {
     const finalCategories = [...newCategories, ...existentCategories];
 
     const createdTransactions = transactionRepository.create(
-      transactions.map(transaction => (
-        {
+      transactions.map(transaction => ({
           title: transaction.title,
           type: transaction.type,
           value: transaction.value,
           category: finalCategories.find(
-            category => category.title === transaction.category
-          )
-        }
-      ))
+            category => category.title == transaction.category
+          ),
+        })),
     );
 
     await transactionRepository.save(createdTransactions);
